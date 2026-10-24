@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the archived version used in your work."
+type: software
+title: "Wetland hydrology tools"
+version: 1.0.0
+authors:
+  - family-names: Shen
+    given-names: Hongren
+    affiliation: University of Waterloo
+repository-code: "https://github.com/hongren-shen/wetland-hydrology-tools"
+url: "https://github.com/hongren-shen/wetland-hydrology-tools"
+license: MIT
+abstract: >-
+  Python tools for wetland reclassification and depression contributing area
+  delineation using GeoPandas and Rasterio. Two serial workflows classify
+  wetlands from river and lake connections, trace ESRI D8 flow directions to
+  depression seeds, and calculate contributing areas and subbasin fractions.
+  The repository includes prepared inputs for gauge 02HB033, Mountsberg Creek
+  near Carlisle, Ontario, and writes GeoPackage, GeoTIFF, and CSV outputs.
+keywords:
+  - hydrology
+  - wetlands
+  - depression contributing area
+  - D8 flow direction
+  - GeoPandas
+  - Rasterio
+  - OWL-Hydro
+  - OLRRP

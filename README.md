@@ -1,133 +1,195 @@
 # wetland-hydrology-tools
 
-Simple Python workflows for wetland reclassification and depression contributing
-area delineation, with a small watershed example. Both workflows run in serial
-using GeoPandas and Rasterio. ArcGIS and flow accumulation are not required.
+Python workflows for classifying wetlands, delineating depression contributing
+areas (DCA), and calculating subbasin area fractions (`Flush_frct`). The
+workflows run in serial using GeoPandas and Rasterio.
 
 ## Setup
 
-Use Python 3.10 or newer. From this repository:
+Use Python 3.11. The included example was tested with Python 3.11.14 and the
+package versions in [environment.yml](environment.yml). From the repository root:
+
+```bash
+conda env create -f environment.yml
+conda activate wetland-hydrology-tools
+```
+
+A pip alternative is provided in [requirements.txt](requirements.txt):
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-The included example is **02HB033, Mountsberg Creek near Carlisle**, Ontario,
-with a drainage area of **51.46 km2**. Its inputs total less than 1 MB. No regional
-download is needed to run the example.
+## Included example
 
-## Two workflows
+The repository includes prepared inputs for **02HB033, Mountsberg Creek near
+Carlisle**, Ontario, Canada. The watershed covers **51.46 km2**. Its vector
+and flow direction inputs total less than 1 MB.
 
-Settings are at the top of each script. Paths are relative to the repository,
-regardless of where the script is launched.
+Run the two workflows in order:
 
-1. **Reclassify wetlands.** Uses the full-resolution OLRRP river and lake layers
-   to produce depression, river, lake, and non-wetland classes.
+```bash
+python workflows/1_reclassify_wetlands.py
+python workflows/2_delineate_contributing_areas.py
+```
 
-   ```bash
-   python workflows/1_reclassify_wetlands.py
-   ```
+Workflow 1 classifies wetlands using river and lake connections. Workflow 2
+uses the resulting depression polygons and a D8 flow direction raster to
+calculate DCA and flushing fractions. Paths are resolved relative to the
+repository, regardless of where the scripts are launched.
 
-2. **Delineate depression contributing areas.** Run workflow 1 first, then:
+## Inputs and configuration
 
-   ```bash
-   python workflows/2_delineate_contributing_areas.py
-   ```
+For another watershed, prepare the following layers in a GeoPackage and edit
+the settings at the top of each workflow. The example uses
+`examples/data/inputs.gpkg`:
 
-Outputs are written to `outputs/`:
-
-| File | Content |
+| Layer | Content |
 | --- | --- |
-| `wetland_classes.gpkg` | Wetland classes, parent wetland IDs, and owner `SubId` |
-| `contributing_areas.gpkg` | DCA polygons merged and clipped by owner subbasin |
-| `contributing_areas.tif` | Final DCA on the input grid, labelled by `SubId`; 0 is NoData |
-| `subbasin_metrics.csv` | Areas in m2, `F_num`, `F_den`, and `Flush_frct` in 0..1 |
+| `subbasins` | One polygon per subbasin, with `SubId` and `Lake_Cat` |
+| `wetlands` | Complete source wetland components intersecting the watershed |
+| `rivers` | River geometry used for connection tests |
+| `lakes` | Lake geometry used for connection tests |
+| `depression_lakes` | Optional headwater lakes omitted from the retained model lake inventory |
+| `routing_lakes` | Retained model lakes excluded from eligible land when calculating fractions |
+
+The example also includes a `boundary` layer with the gauge watershed outline.
+
+| Setting | Workflow | Default and meaning |
+| --- | --- | --- |
+| `INPUTS` | Both | `examples/data/inputs.gpkg`; vector input file |
+| `OUTPUT` | 1 | `outputs/wetland_classes.gpkg`; classified polygons |
+| `RIVER_BUFFER_M` | 1 | `60.0`; maximum distance in metres for river connection |
+| `LAKE_BUFFER_M` | 1 | `0.0`; lake connection requires touching or overlapping geometry |
+| `DEPRESSION_LAKES_LAYER` | 1 | `depression_lakes`; set to `None` to skip the lake override |
+| `FLOW_DIRECTION` | 2 | `examples/data/flow_direction.tif`; ESRI D8 flow direction raster |
+| `WETLAND_CLASSES` | 2 | `outputs/wetland_classes.gpkg`; must match workflow 1's `OUTPUT` |
+| `OUTPUT_FOLDER` | 2 | `outputs`; DCA vectors, raster, and metrics |
+
+Vector inputs must share a projected CRS with metre units. Distance settings
+must be finite and nonnegative. Preserve complete connected wetlands and
+nearby river and lake geometry before classification.
+
+The flow direction raster must use a projected CRS with metre units and an
+unrotated, north-up grid with square cells. Use a rectangular crop with surrounding context;
+do not mask it to the watershed polygon before routing. Workflow 2 stops if
+a contributing zone reaches the crop edge, so enlarge the crop when needed.
+
+The example vectors use **EPSG:3161**. Its flow direction raster retains the
+original **30 m** OIH grid with a **1,000 m** margin around the watershed's
+bounding box. Source dates and preparation are documented in
+[example data sources](examples/DATA_SOURCES.md).
 
 ## Processing rules
 
-- Touching and overlapping wetlands are dissolved into singlepart parents
-  before classification. A parent within **60 m** of a river is river-connected;
-  lake connection uses direct intersection. Lake connection takes precedence.
+- Overlapping wetlands and polygons sharing a boundary segment are merged
+  before connection tests. Polygons meeting only at a point remain separate.
+  River connection uses the configured distance; lake connection takes
+  precedence when both tests pass.
 - Wetlands are split by subbasin after connection tests. A lake-connected
-  parent's portion in a subbasin with `Lake_Cat <= 0` becomes river wetland.
-  Wetlands connected to neither are classified as `WETLAND_DEP`.
-- The optional `depression_lakes` layer imprints headwater lakes omitted from
-  the model's simplified lake inventory as `WETLAND_DEP`. The example contains
-  one such lake. Set `DEPRESSION_LAKES_LAYER = None` to skip this step.
-- Every valid flow-direction cell with positive-area overlap with a depression
-  is a seed. Shared cells retain all overlapping depression identities. Cells
-  that only touch a polygon boundary are not seeds. Every polygon part must
-  have valid seed coverage.
-- One simultaneous ESRI D8 traversal assigns each cell to the first depression
-  seed reached downstream. These are incremental contributing zones. Each
-  owner's zones and depression bodies are unioned, then clipped to that owner.
-- `F_den` is subbasin area excluding retained routing lakes and all wetland
-  classes. `F_num` is the owner's DCA intersected with that eligible land.
-  `Flush_frct = F_num / F_den`, or zero when `F_den` is zero. Overlapping masks
-  are unioned before measuring area. Background land-cover WATER is not inferred.
+  portion in a subbasin with `Lake_Cat <= 0` becomes river wetland. The classes
+  are `WETLAND_DEP`, `WETLAND_RIVER`, `WETLAND_LAKE`, and `NO_WETLAND`.
+- The optional `depression_lakes` layer assigns omitted headwater lakes to
+  `WETLAND_DEP`, overriding the preceding classification. The example contains
+  one such lake. The library's `identify_depression_lakes` helper can identify
+  these lakes from the complete routing graph and retained lake IDs.
+- Every valid flow direction cell with positive area overlap with a depression
+  is a seed. Shared cells retain all overlapping depression identities.
+  Boundary contact alone does not create a seed. Every depression polygon
+  part must overlap at least one valid cell.
+- Each cell is assigned to the first depression seed reached downstream.
+  The resulting contributing zones and depression bodies are combined by
+  subbasin, then clipped to that subbasin's boundary.
+- `F_den` is subbasin area excluding retained routing lakes and all three
+  wetland classes. `F_num` is the area of eligible land within that subbasin's DCA.
+  `Flush_frct = F_num / F_den`, or zero when `F_den` is zero. Overlapping
+  exclusions are combined before measuring area. The background WATER land
+  cover class is not inferred.
 
-The flow-direction grid must use ESRI D8 codes: east=1, southeast=2, south=4,
+Flow directions must use ESRI D8 codes: east=1, southeast=2, south=4,
 southwest=8, west=16, northwest=32, north=64, northeast=128. Other valid byte
-values are terminal cells. NoData, paths without a seed, and seed-free cycles
-remain unassigned. Input rasters must have north-up square cells in metre units.
+values are terminal cells. NoData, paths without a seed, and cycles without
+a seed remain unassigned.
 
-## Example inputs and another watershed
+The example uses subbasins at their original resolution and newly classified
+vector wetlands. Published OWL-Hydro DCA and fractions use the corresponding
+final model HRUs and subbasin configuration.
 
-`examples/data/inputs.gpkg` contains:
+## Outputs
 
-| Layer | Required fields / purpose |
+Both workflows write to `outputs/`:
+
+| File | Content |
 | --- | --- |
-| `boundary` | OWL-Hydro gauge boundary, used to prepare the example |
-| `subbasins` | Full-resolution `SubId` and `Lake_Cat`; one polygon per owner |
-| `wetlands` | Complete source wetland components intersecting the basin |
-| `rivers` | Full-resolution river geometry for connection tests |
-| `lakes` | Full-resolution lake geometry for connection tests |
-| `depression_lakes` | Optional omitted headwater lake polygons |
-| `routing_lakes` | Retained model lake polygons used only for eligible-land metrics |
+| `wetland_classes.gpkg` | Layer `wetland_classes`: class, generated parent ID `WET_ORIG`, `SubId`, and `Area_km2` |
+| `contributing_areas.gpkg` | Layer `contributing_areas`: DCA polygons grouped and clipped by `SubId`, with `Area_km2` |
+| `contributing_areas.tif` | Final DCA on the input grid; signed 32-bit `SubId` values, with 0 as NoData |
+| `subbasin_metrics.csv` | Areas in m2, `F_num`, `F_den`, and `Flush_frct` in 0..1 |
 
-All vector layers use **EPSG:3161**. `flow_direction.tif` retains the original
-**30 m** OIH grid, with a **1,000 m** margin around the basin bounding box.
-`manifest.json` records source paths, selection rules, grid details, and hashes.
+`WET_ORIG` identifies the parent wetland generated during classification;
+it is separate from source IDs such as `OGF_ID`. A value of 0 indicates no
+wetland parent, including areas outside mapped wetlands and the optional
+lake override.
 
-For another basin, provide the same layers and change the workflow paths.
-Preserve complete connected wetland components and nearby river/lake context
-before classification. Use an aligned rectangular flow-direction crop with
-surrounding context; do not mask it to the watershed polygon before routing.
-Workflow 2 stops if a contributing zone reaches the crop edge, so enlarge the
-crop when needed. Final vector results are clipped to the subbasins.
+Rerunning the workflows replaces the generated layers, raster, and CSV.
 
-To rebuild the supplied inputs from regional source data, edit the two source
-paths at the top of `examples/prepare_example.py`, then run that script. This
-optional preparation step is separate from the two processing workflows.
+## Structure and checks
 
-## Checks and scope
+```text
+workflows/       two runnable workflows with editable settings
+library/         classification, D8 routing, and area calculations
+examples/data/   prepared watershed inputs
+tests/           checks for classification, routing, geometry, and fractions
+```
+
+From the repository root:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Tests cover classification precedence, parent connectivity across boundaries,
-headwater lake overrides, shared seeds, all eight D8 directions, missing seed
-coverage, owner clipping, and union-based fractions.
+The tests cover classification, shared seeds, D8 routing, subbasin clipping,
+geometry cleanup, and area fractions. Run the included example to check the
+complete workflow and generate the four outputs above.
 
-A fixed-seed comparison with the source project's archived ArcPy Watershed
-result matched all 145,633 cells assigned within the example-area raster crop.
-Another 3,159 archived cells depended on paths or seeds outside that crop;
-following the regional paths recovered all of their archived labels. This
-checks the D8 implementation for that footprint, not every possible ArcGIS run.
-The example's new seed grid also matches the original seed-building library.
-Expanding its FDR margin from 1 km to 3 km leaves all six owner DCA polygons
-unchanged; no contributing zone reaches the example crop edge.
+## Citation and data sources
 
-This is a compact implementation of the source processing rules. It omits
-regional batch processing, resume archives, HRU editing, and routing-product
-publication. The example uses full-resolution subbasin owners and newly
-classified wetlands, so its metrics are not the published OWL-Hydro HRU metrics.
-Planar distance and overlay operations use Shapely; ArcGIS geometry tolerances
-and buffer approximations can produce small boundary differences.
+### Software
 
-## License and sources
+Software author: Hongren Shen. Citation metadata for version 1.0.0 is provided
+in [CITATION.cff](CITATION.cff). When using GitHub code, record the exact commit.
+For an archived software release, cite the DOI of the version used. The
+repository citation is:
 
-Code: [MIT License](LICENSE), copyright 2019-2026 Hongren Shen. Adapted from the
-author's Ontario wetland and depression processing scripts. Example data retain
-their source terms; see [data sources and attribution](examples/DATA_SOURCES.md).
+Shen, H. (2026). *Wetland hydrology tools* (Version 1.0.0) [Computer software].
+[GitHub](https://github.com/hongren-shen/wetland-hydrology-tools).
+
+### OWL-Hydro dataset
+
+For the OWL-Hydro gauge boundary, retained lake inventory, or associated
+products used with these workflows, please cite:
+
+Shen, H., Tolson, B., Han, M., Craig, J., Metcalfe, R. (2026).
+*OWL-Hydro v1.0: An Integrated, Model-Ready Dataset for Semi-Distributed
+Hydrologic Modelling in Ontario, Canada*. Federated Research Data Repository.
+[https://doi.org/10.20383/103.01878](https://doi.org/10.20383/103.01878)
+
+### Routing and Ontario source data
+
+The subbasin, river, and lake inputs are based on OLRRP v2. Please also cite:
+
+Shen, H., Han, M., Tolson, B., and Metcalfe, R. A. (2024).
+*The Ontario Lake and River Routing Product Version 2 (OLRRP V2)* [Data set].
+[https://doi.org/10.5281/zenodo.14225103](https://doi.org/10.5281/zenodo.14225103)
+
+Wetland polygons are from the Government of Ontario
+[Wetlands dataset](https://data.ontario.ca/dataset/wetlands). Flow direction is
+from [Ontario Integrated Hydrology](https://data.ontario.ca/dataset/ontario-integrated-hydrology-data).
+See [example data sources](examples/DATA_SOURCES.md) for preparation and data terms.
+
+## License
+
+Code is provided under the [MIT License](LICENSE), copyright 2019-2026
+Hongren Shen. Example data retain their source attribution and applicable
+data terms, separately from the software license. Preserve the notices in
+[example data sources](examples/DATA_SOURCES.md) when redistributing the example.

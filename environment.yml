@@ -1,0 +1,13 @@
+name: wetland-hydrology-tools
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11.14
+  - numpy=2.3.3
+  - pandas=2.3.3
+  - geopandas=1.1.1
+  - shapely=2.1.2
+  - pyogrio=0.11.0
+  - rasterio=1.4.3
+  - pyproj=3.7.2

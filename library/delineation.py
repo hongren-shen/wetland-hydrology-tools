@@ -152,6 +152,8 @@ def delineate_depressions(depressions, subbasins, flow_direction_path):
     not owner IDs. The returned profile uses zero as NoData. Depressions are
     clipped to their explicit owners before every polygon part is seed-checked.
     The final union includes all owned bodies and is clipped to each owner.
+    Final coordinates are normalized to a 1 micrometre grid to remove numerical
+    artifacts. Seed construction and D8 routing retain the original precision.
 
     ``crop_edge_labels`` identifies catchments reaching the rectangular raster
     edge. A nonempty list requires a larger-context comparison before the crop
@@ -221,6 +223,9 @@ def delineate_depressions(depressions, subbasins, flow_direction_path):
         body = shapely.union_all(bodies[owner])
         combined = shapely.union_all(raw_by_owner[owner] + [body]).intersection(owners[owner])
         geometry = shapely.union_all(list(_polygon_parts(combined)))
+        geometry = shapely.set_precision(geometry, grid_size=1e-6, mode='valid_output')
+        # Do not impose this export precision on subsequent metric overlays.
+        geometry = shapely.set_precision(geometry, grid_size=0.0)
         if (geometry.is_empty or not geometry.is_valid
                 or body.difference(geometry).area > 1.0
                 or geometry.difference(owners[owner]).area > 1.0):
