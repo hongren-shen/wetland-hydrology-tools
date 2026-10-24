@@ -156,13 +156,16 @@ complete workflow and generate the four outputs above.
 
 ### Software
 
-Software author: Hongren Shen. Citation metadata for version 1.0.0 is provided
-in [CITATION.cff](CITATION.cff). When using GitHub code, record the exact commit.
-For an archived software release, cite the DOI of the version used. The
-repository citation is:
+Please cite the archived software version used in your work. Citation metadata
+is provided in [CITATION.cff](CITATION.cff):
 
-Shen, H. (2026). *Wetland hydrology tools* (Version 1.0.0) [Computer software].
-[GitHub](https://github.com/hongren-shen/wetland-hydrology-tools).
+Shen, H. (2026). *Wetland hydrology tools*
+(Version v1.0.0) [Computer software]. Zenodo.
+[https://doi.org/10.5281/zenodo.23607989](https://doi.org/10.5281/zenodo.23607989)
+
+Source code and documentation are available on
+[GitHub](https://github.com/hongren-shen/wetland-hydrology-tools). If you use changes
+not included in an archived release, also record the exact commit used.
 
 ### OWL-Hydro dataset
 
